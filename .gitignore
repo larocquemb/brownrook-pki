@@ -15,3 +15,7 @@ root/
 intermediate/
 leafs/
 newcerts/
+
+# Allow documented ceremony artifacts inside this repo
+!pki/**/ceremony.log
+!pki/**/*.csr
