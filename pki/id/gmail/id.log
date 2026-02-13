@@ -1,0 +1,36 @@
+openssl genrsa -out gmail_rsa.key 3072
+chmod 600 gmail_rsa.key
+
+openssl req -new -key gmail.key -out gmail.csr \
+  -subj "/C=CA/CN=Paul La Rocque/emailAddress=pllarocque@gmail.com"
+    
+export INT_CA_KEY_URI="$(
+  p11tool --provider /opt/homebrew/lib/opensc-pkcs11.so \
+    --login --list-all --only-urls \
+  | grep -E 'type=private' \
+  | grep -E 'id=%02|;id=02' \
+  | head -n 1
+)"
+echo "$INT_CA_KEY_URI"
+export OPENSSL_MODULES="/opt/homebrew/opt/openssl@3/lib/ossl-modules"
+export OPENSSL_CONF="/Users/paul/brownrook-ca/id/openssl-pkcs11.cnf" 
+openssl list -providers
+
+openssl ca \
+  -config intermediate-ca.cnf \
+  -extensions v3_user \
+  -extfile gmail-user-ext.cnf \
+  -in gmail.csr -out gmail.crt \
+  -batch -notext
+
+
+cat ../../intermediate/intermediate_ca.crt ../../root/root_ca.crt > chain.pem
+openssl pkcs12 -export \
+  -inkey gmail.key \
+  -in gmail.crt \
+  -certfile chain.pem \
+  -out gmail-smime-outlook.p12
+
+openssl pkcs12 -in gmail-smime-outlook.p12-nokeys -out chain.pem
+awk 'BEGIN{c=0}/BEGIN CERT/{c++}{print > ("cert" c ".pem")}' chain.pem
+openssl x509 -in cert1.pem -noout -subject -issuer
