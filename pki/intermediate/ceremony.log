@@ -1,0 +1,70 @@
+Brown Rook
+Intermediate Certificate Authority 
+Key Ceremony log
+Date:  2026-01-17
+YubiKey Serial 14924285
+PIV information stored on paper in sealed envelope
+
+# 1- Generate Intermediate CA keypair on hardware (slot 9C) 
+paul@m4pro root % ykman piv keys generate 9c intermediate_ca_pub.pem \
+  --algorithm ECCP384 \
+  --touch-policy always
+Enter a management key [blank to use default key]: 
+Private key generated in slot 9C (SIGNATURE), public key written to root_ca_pub.pem.
+
+paul@m4pro root % ykman piv keys info 9c
+Key slot:               9C (SIGNATURE)
+Algorithm:              ECCP384
+Origin:                 GENERATED
+PIN required for use:   ALWAYS
+Touch required for use: ALWAYS
+
+paul@m4pro intermediate % openssl pkey -pubin -in intermediate_ca_pub.pem -outform DER | shasum -a 256
+4ae2135c792becfd420353f29c8f65289f2d2670408a28bef3ad3f73b9a74a56  -
+
+# 2 - Generate Intermediate CA CSR
+paul@m4pro root % ykman piv certificates request 9c \
+  intermediate_ca_pub.pem \
+  intermediate_ca.csr \
+  --subject "CN=Brown Rook Intermediate CA,O=Brown Rook,C=CA"
+Enter PIN: 
+Touch your YubiKey...
+CSR for slot 9C (SIGNATURE) written to intermediate_ca.csr.
+
+# 3 - Sign with Root CA 
+# insert Root CA YubiKey
+paul@m4pro intermediate % /opt/homebrew/opt/gnutls/bin/gnutls-certtool \
+  --ask-pass \
+  --hash SHA384 \
+  --generate-certificate \
+  --template intermediate_ca.tmpl \
+  --load-request intermediate_ca.csr \
+  --load-ca-certificate ../root/root_ca.crt \
+  --load-ca-privkey "$ROOT_CA_KEY_URI" \
+  --provider /opt/homebrew/lib/libykcs11.dylib \
+  --outfile intermediate_ca.crt
+Generating a signed certificate...
+Token 'YubiKey PIV #14924285' with URL 'pkcs11:model=YubiKey%20YK5;manufacturer=Yubico%20%28www.yubico.com%29;serial=14924285;token=YubiKey%20PIV%20%2314924285' requires user PIN
+Enter PIN: 
+
+paul@m4pro intermediate % openssl x509 -in intermediate_ca.crt -noout -text
+
+paul@m4pro intermediate % openssl verify -CAfile ../root/root_ca.crt intermediate_ca.crt
+intermediate_ca.crt: OK
+
+#4 - Import into Intermediate YubiKey
+paul@m4pro intermediate % ykman piv certificates import 9c intermediate_ca.crt
+Enter a management key [blank to use default key]: 
+Certificate imported into slot SIGNATURE
+
+#5 - Build a cert chain file handy for servers and tooling
+paul@m4pro intermediate % cat intermediate_ca.crt ../root/root_ca.crt > ca-chain.pem
+
+$ check fingerprint
+paul@m4pro intermediate % ykman piv certificates export 9c intermediate_from_yk_9c.crt
+Certificate from slot 9C (SIGNATURE) exported to intermediate_from_yk_9c.crt.
+paul@m4pro intermediate % openssl x509 -in intermediate_from_yk_9c.crt -noout -fingerprint -sha256
+sha256 Fingerprint=05:2E:D8:B4:BF:0F:06:4D:1D:54:22:DE:FA:F2:79:8E:86:61:05:4D:33:8D:4C:98:E3:3D:A7:D3:6F:FD:BC:35
+paul@m4pro intermediate % openssl x509 -in intermediate_ca.crt -noout -fingerprint -sha256
+sha256 Fingerprint=05:2E:D8:B4:BF:0F:06:4D:1D:54:22:DE:FA:F2:79:8E:86:61:05:4D:33:8D:4C:98:E3:3D:A7:D3:6F:FD:BC:35
+paul@m4pro intermediate % 
