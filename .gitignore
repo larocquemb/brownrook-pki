@@ -3,19 +3,10 @@
 *.pem
 *.p12
 *.pfx
-*.csr
+*.piv
 *.der
 *.log
 
 # macOS
 .DS_Store
 
-# CA runtime directories (if accidentally copied)
-root/
-intermediate/
-leafs/
-newcerts/
-
-# Allow documented ceremony artifacts inside this repo
-!pki/**/ceremony.log
-!pki/**/*.csr
