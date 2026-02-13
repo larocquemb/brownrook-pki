@@ -1,0 +1,224 @@
+ykman piv keys generate \
+  --algorithm ECCP384 \
+  --pin-policy always \
+  --touch-policy always \
+  9c paul_macbookpro_pub.pem
+
+ykman piv certificates request 9c paul_macbookpro_pub.pem paul_macbookpro.csr \
+  -s "CN=Paul La Rocque,OU=Brown Rook,O=10134646 Manitoba Ltd,C=CA"
+# -s "CN=Paul La Rocque,O=10134646 Manitoba Ltd. (Brown Rook),C=CA" 
+
+p11tool --provider /opt/homebrew/lib/libykcs11.dylib --list-tokens
+
+paul@m4pro id % export INT_CA_KEY_URI="$(                     
+  p11tool --provider /opt/homebrew/lib/libykcs11.dylib \
+    --login \
+    --list-all \
+    --only-urls \
+  | grep -E 'id=%02.*type=private|type=private.*id=%02'
+)"
+
+export GNUTLS_PIN="INTERMEDIATEKEYPIN"    
+
+### paul_macbookpro.tmpl 
+cn = "Paul La Rocque"
+organization = "10134646 Manitoba Ltd. (Brown Rook)"
+country = "CA"
+email = paul.larocque@brownrook.com
+
+# Key Usage flags (RFC5280 digitalSignature)
+signing_key
+
+# Extended Key Usage flags
+email_protection_key
+code_signing_key
+
+# Identifiers
+subject_key_identifier = hash
+authority_key_identifier = keyid,issuer
+
+
+paul@m4pro id % /opt/homebrew/opt/gnutls/bin/gnutls-certtool \
+  --generate-certificate \
+  --hash SHA384 \
+  --load-request paul_macbookpro.csr\
+  --template paul_macbookpro.tmpl \
+  --load-ca-certificate ../../intermediate/intermediate_ca.crt \
+  --provider /opt/homebrew/lib/libykcs11.dylib \
+  --load-ca-privkey "$INT_CA_KEY_URI" \
+  --outfile paul_macbookpro.crt
+
+cat paul_macbookpro.crt ../../intermediate/intermediate_ca.crt > paul_macbookpro_bundle.pem
+ykman piv certificates import 9c paul_macbookpro_bundle.pem
+ykman piv info
+
+ykman piv keys export 9c paul_macbookpro_pub.pem
+ykman piv certificates export 9c paul_macbookpro_export_cert_pub.pem
+openssl x509 -in paul_macbookpro.crt -pubkey -noout \
+| openssl pkey -pubin -outform der \
+| openssl sha1
+openssl x509 -in paul_macbookpro_export_cert_pub.pem -pubkey -noout \
+| openssl pkey -pubin -outform der \
+| openssl sha1
+openssl pkey -pubin -in paul_macbookpro_export_pub.pem -outform der \
+| openssl sha1
+
+
+
+
+
+  brew install openssl@3 pkgconf meson ninja
+  git clone https://github.com/latchset/pkcs11-provider.git
+  meson setup build 
+  meson compile -C build  
+  sudo meson install -C build 
+  ls -la /opt/homebrew/opt/openssl@3/lib/ossl-modules/   
+
+paul@m4pro macbookpro % cat        intermediate-ca.cnf
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+# Minimal CA database files (needed by openssl ca)
+dir            = ../../intermediate
+database       = $dir/index.txt
+new_certs_dir  = $dir/newcerts
+serial         = $dir/serial
+
+certificate    = $dir/intermediate_ca.crt
+private_key    = pkcs11:model=YubiKey%20YK5;manufacturer=Yubico%20%28www.yubico.com%29;serial=14924286;token=YubiKey%20PIV%20%2314924286;id=%02;object=Private%20key%20for%20Digital%20Signature;type=private
+
+default_md     = sha384
+default_days   = 365
+policy         = policy_any
+copy_extensions = copy
+
+[ policy_any ]
+countryName             = supplied
+organizationName        = supplied
+organizationalUnitName  = optional
+commonName              = supplied
+emailAddress            = optional
+
+paul@m4pro pkcs11-provider % cat /tmp/openssl-pkcs11.cnf
+openssl_conf = openssl_init
+
+[openssl_init]
+providers = provider_sect
+
+[provider_sect]
+default = default_sect
+pkcs11  = pkcs11_sect
+
+[default_sect]
+activate = 1
+
+[pkcs11_sect]
+activate = 1
+pkcs11-module-path = /opt/homebrew/lib/libykcs11.dylib
+
+paul@m4pro pkcs11-provider % export OPENSSL_MODULES="/opt/homebrew/opt/openssl@3/lib/ossl-modules"
+paul@m4pro pkcs11-provider % export OPENSSL_CONF="/Users/paul/brownrook-ca/id/openssl-pkcs11.cnf" 
+paul@m4pro pkcs11-provider % openssl list -providers
+Providers:
+  default
+    name: OpenSSL Default Provider
+    version: 3.6.1
+    status: active
+  pkcs11
+    name: PKCS#11 Provider
+    version: 1.1
+    status: active
+
+#export PKCS11_PIN=842052
+openssl ca \
+  -provider pkcs11 -provider default \
+  -config intermediate-ca.cnf \
+  -extensions v3_user \
+  -extfile brownrook-user-ext.cnf \
+  -in paul_macbookpro.csr \
+  -out paul_macbookpro.crt \
+  -batch \
+  -notext
+
+# initialize serial database
+mkdir -p newcerts
+: > index.txt
+echo 1000 > serial
+
+
+paul@m4pro macbookpro % openssl pkcs12 -in paul_fullchain_certs_only.p12 -info -nokeys
+Enter Import Password:
+MAC: sha256, Iteration 2048
+MAC length: 32, salt length: 16
+PKCS7 Encrypted data: PBES2, PBKDF2, AES-256-CBC, Iteration 2048, PRF hmacWithSHA256
+Certificate bag
+Bag Attributes: <No Attributes>
+subject=C=CA, O=10134646 Manitoba Ltd, OU=Brown Rook, CN=Paul La Rocque
+issuer=C=CA, O=Brown Rook, CN=Brown Rook Intermediate CA
+-----BEGIN CERTIFICATE-----
+MIIEbTCCA/KgAwIBAgICEAAwCgYIKoZIzj0EAwMwRzELMAkGA1UEBhMCQ0ExEzAR
+BgNVBAoMCkJyb3duIFJvb2sxIzAhBgNVBAMMGkJyb3duIFJvb2sgSW50ZXJtZWRp
+YXRlIENBMB4XDTI2MDIxMTAyMjIwN1oXDTI3MDIxMTAyMjIwN1owWzELMAkGA1UE
+BhMCQ0ExHjAcBgNVBAoMFTEwMTM0NjQ2IE1hbml0b2JhIEx0ZDETMBEGA1UECwwK
+QnJvd24gUm9vazEXMBUGA1UEAwwOUGF1bCBMYSBSb2NxdWUwdjAQBgcqhkjOPQIB
+BgUrgQQAIgNiAATXYOXO1s0ZyZFfbzZ24wcpvjRTuU6EPUVf56YKqyJDCJvq41ei
+BZHogqqvfxIRKDzIgK/mkVVf4ZF9wsTR8OpoU2wy5DNe/Tu/j4tlMlNQ8neVZFf/
+4KBwKohCd/8vMOCjggKbMIIClzAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIH
+gDAdBgNVHSUEFjAUBggrBgEFBQcDBAYIKwYBBQUHAwMwJgYDVR0RBB8wHYEbcGF1
+bC5sYXJvY3F1ZUBicm93bnJvb2suY29tMBEGCisGAQQBg/xLAQAEAwwBMTAiBgor
+BgEEAYP8SwEBBBQMElAuSi5MLlIuIExhIFJvY3F1ZTAkBgorBgEEAYP8SwEDBBYM
+FEpvc2VwaCBMb3VpcyBSYXltb25kMBYGCisGAQQBg/xLAQQECAwGcGVyc29uMCYG
+CisGAQQBg/xLAgEEGAwWMTAxMzQ2NDYgTWFuaXRvYmEgTHRkLjAaBgorBgEEAYP8
+SwICBAwMCkJyb3duIFJvb2swGQYKKwYBBAGD/EsCBAQLDAlQcmVzaWRlbnQwLgYK
+KwYBBAGD/EsCBQQgDB5BdXRob3JpemVkIGNvcnBvcmF0ZSBzaWduYXRvcnkwMQYL
+KwYBBAGD/EsKAQEEIgwgRW5naW5lZXJzIEdlb3NjaWVudGlzdHMgTWFuaXRvYmEw
+FwYLKwYBBAGD/EsKAQIECAwGRW5nR2VvMBcGCysGAQQBg/xLCgEEBAgMBlAuRW5n
+LjAWBgsrBgEEAYP8SwoBBQQHDAUxMDE4NTAdBgsrBgEEAYP8SwoBBgQODAxNYW5p
+dG9iYSwgQ0EwIAYKKwYBBAGD/EsUAQQSDBBEb2N1bWVudCBzaWduaW5nMC4GCisG
+AQQBg/xLFAQEIAweSGFyZHdhcmUtYmFja2VkIGhpZ2ggYXNzdXJhbmNlMB0GA1Ud
+DgQWBBQq3onX2tpmoZZyYbSSt+opCQnF0zAfBgNVHSMEGDAWgBQ6mi/twd6vU52R
+TQPiguu1YFwi/zAKBggqhkjOPQQDAwNpADBmAjEAikYtVD60p+QIGQ9608yh0lBr
+21HEh3AYTQD+7khexMdypqtqpi7Plvsuku6Cx8OpAjEA5Dfnw5NLhsTvSzoPt0Oj
+iN/4NRoYEKXb9UANTGFo9LjQA/pDWuRCb6Kjx9mzxKwI
+-----END CERTIFICATE-----
+Certificate bag
+Bag Attributes: <No Attributes>
+subject=C=CA, O=Brown Rook, CN=Brown Rook Intermediate CA
+issuer=C=CA, O=Brown Rook, CN=Brown Rook Root CA
+-----BEGIN CERTIFICATE-----
+MIICKzCCAbGgAwIBAgIUGXQugFkK70+XncUrgSUjQgOU/s4wCgYIKoZIzj0EAwMw
+PzELMAkGA1UEBhMCQ0ExEzARBgNVBAoMCkJyb3duIFJvb2sxGzAZBgNVBAMMEkJy
+b3duIFJvb2sgUm9vdCBDQTAeFw0yNjAxMTcyMDAyNDNaFw0zNjAxMTUyMDAyNDNa
+MEcxCzAJBgNVBAYTAkNBMRMwEQYDVQQKDApCcm93biBSb29rMSMwIQYDVQQDDBpC
+cm93biBSb29rIEludGVybWVkaWF0ZSBDQTB2MBAGByqGSM49AgEGBSuBBAAiA2IA
+BC9cB+6cBklyuHFfwwXEtz43+mRWtns3q3s2NgwhHw8Dqxw6RNsEunjDc6nlClin
+whv4qh8tu0cK6dpGhZjwWLTJsl1sdoNnwJR7kVnYvl+4U7bnR0AOp2X/Wp5VmPZ8
+A6NmMGQwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0O
+BBYEFDqaL+3B3q9TnZFNA+KC67VgXCL/MB8GA1UdIwQYMBaAFFwkf33RENI4KoVN
+wBv5mjCaauD8MAoGCCqGSM49BAMDA2gAMGUCMQDpx/haMHuxGkEwsa2FdFGm8Dqx
+d546by7zGWHG460DjzCRGanHmIqb1+AQK/Kw/9ACMHOYeiEBKUiB8hEIup5I1aHv
+5T77hW2NiHjZSTfDTmgnzHfvPN5OV7LN/E0qs27R9A==
+-----END CERTIFICATE-----
+Certificate bag
+Bag Attributes: <No Attributes>
+subject=C=CA, O=Brown Rook, CN=Brown Rook Root CA
+issuer=C=CA, O=Brown Rook, CN=Brown Rook Root CA
+-----BEGIN CERTIFICATE-----
+MIIB/zCCAYWgAwIBAgIUbMBJC48hECphu5AsPhrJpY0FOdEwCgYIKoZIzj0EAwMw
+PzELMAkGA1UEBhMCQ0ExEzARBgNVBAoMCkJyb3duIFJvb2sxGzAZBgNVBAMMEkJy
+b3duIFJvb2sgUm9vdCBDQTAeFw0yNjAxMTcxODUyNDlaFw00NjAxMTIxODUyNDla
+MD8xCzAJBgNVBAYTAkNBMRMwEQYDVQQKDApCcm93biBSb29rMRswGQYDVQQDDBJC
+cm93biBSb29rIFJvb3QgQ0EwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAAQQ/VvGRBU2
+ubAJC4+cJqISVVS4E8ucKYQetbN6AaEY/bDP2k5i+VxcJDXw0dg2iak/Rakc+3pK
+n3nM+vv9uJ89KDnz/jJVd+ZNsAH9nGzTANBjZFG1MuZFePqM4WHHgFKjQjBAMA8G
+A1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBRcJH990RDS
+OCqFTcAb+Zowmmrg/DAKBggqhkjOPQQDAwNoADBlAjEAvZFhaVMDzLkE0VEaz/1E
+bP5PbIpKmuxkNWphBuTUZJlRyfvoESHZ9j36jRspC6h6AjAj5QepTjvv49m1Jcr+
+er/WIv6pO78EE9Y0fsBvTkhvbH9EXp8XEzcFa6nEOnPEWFI=
+-----END CERTIFICATE-----
+paul@m4pro macbookpro % 
+
+openssl pkcs12 -in paul_fullchain_certs_only.p12 -nokeys -out chain.pem
+awk 'BEGIN{c=0}/BEGIN CERT/{c++}{print > ("cert" c ".pem")}' chain.pem
+openssl x509 -in cert1.pem -noout -subject -issuer
