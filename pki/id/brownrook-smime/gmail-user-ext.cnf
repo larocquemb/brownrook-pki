@@ -1,0 +1,10 @@
+[ v3_user ]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature, keyEncipherment
+extendedKeyUsage = critical,emailProtection
+
+# S/MIME needs email in SAN for best compatibility
+subjectAltName = @alt_names
+
+[ alt_names ]
+email.1 = pllarocque@gmail.com
