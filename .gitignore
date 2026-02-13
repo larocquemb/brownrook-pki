@@ -5,7 +5,6 @@
 *.pfx
 *.piv
 *.der
-*.log
 
 # macOS
 .DS_Store
