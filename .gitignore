@@ -1,0 +1,17 @@
+# Never commit private material
+*.key
+*.pem
+*.p12
+*.pfx
+*.csr
+*.der
+*.log
+
+# macOS
+.DS_Store
+
+# CA runtime directories (if accidentally copied)
+root/
+intermediate/
+leafs/
+newcerts/
