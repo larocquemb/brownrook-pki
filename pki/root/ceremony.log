@@ -1,0 +1,89 @@
+Brown Rook
+Root Certificate Authority 
+Key Ceremony log
+Date:  2026-01-17
+YubiKey Serial 14924285
+PIV information stored on paper in sealed envelope
+
+# 1- Generate Root CA keypair on hardware (slot 9C) 
+paul@m4pro root % ykman piv keys generate 9c root_ca_pub.pem \
+  --algorithm ECCP384 \
+  --touch-policy always
+Enter a management key [blank to use default key]: 
+Private key generated in slot 9C (SIGNATURE), public key written to root_ca_pub.pem.
+
+paul@m4pro root % ykman piv keys info 9c
+Key slot:               9C (SIGNATURE)
+Algorithm:              ECCP384
+Origin:                 GENERATED
+PIN required for use:   ALWAYS
+Touch required for use: ALWAYS
+
+# 2 - Generate Root CA CSR
+paul@m4pro root % ykman piv certificates request 9c root_ca_pub.pem root_ca.csr \
+  --subject "CN=Brown Rook Root CA,O=Brown Rook,C=CA"
+Enter PIN: 
+Touch your YubiKey...
+CSR for slot 9C (SIGNATURE) written to root_ca.csr.
+
+# 3 - Prepare Root CA certificate template (static file)
+# Create root_ca.tmpl:
+cn = "Brown Rook Root CA"
+organization = "Brown Rook"
+country = "CA"
+
+ca
+cert_signing_key
+crl_signing_key
+
+expiration_days = 7300
+
+# prepare root_ca.cnf
+[ req ]
+prompt = no
+distinguished_name = dn
+x509_extensions = v3_ca
+
+[ dn ]
+CN = Brown Rook Root CA
+O  = Brown Rook
+C  = CA
+
+[ v3_ca ]
+basicConstraints = critical, CA:true, pathlen:1
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+
+# 4- Identify PKCS#11 private key (deterministic)
+# You know that id=%02 is slot 9C because YKCS11 maps PIV slots to fixed PKCS#11 key IDs, 
+# and id=%02 is the canonical ID for PIV Digital Signature (9C).
+paul@m4pro root % paul@m4pro root % 
+export ROOT_CA_KEY_URI="$(
+  p11tool --provider /opt/homebrew/lib/libykcs11.dylib \
+    --login \
+    --list-all \
+    --only-urls \
+  | grep -E 'id=%02.*type=private|type=private.*id=%02'
+)"
+paul@m4pro root % echo "$ROOT_CA_KEY_URI"
+pkcs11:model=YubiKey%20YK5;manufacturer=Yubico%20%28www.yubico.com%29;serial=14924285;token=YubiKey%20PIV%20%2314924285;id=%02;object=Private%20key%20for%20Digital%20Signature;type=private
+
+#5 Self-sign Root CA certificate 
+/opt/homebrew/opt/gnutls/bin/gnutls-certtool \
+  --ask-pass \
+  --hash SHA384 \
+  --generate-self-signed \
+  --template root_ca.tmpl \
+  --load-request root_ca.csr \
+  --provider /opt/homebrew/lib/libykcs11.dylib \
+  --load-privkey $ROOT_CA_KEY_URI \
+  --outfile root_ca.crt
+# touch key
+
+# Import
+ykman piv certificates import 9c root_ca.crt
+
+openssl x509 -in root_ca.crt -noout -text
+paul@m4pro root % openssl verify -CAfile root_ca.crt root_ca.crt
+root_ca.crt: OK
