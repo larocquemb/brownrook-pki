@@ -6,7 +6,15 @@
 *.piv
 *.der
 
+# OpenSSL CA runtime/database state
+pki/intermediate/index.txt
+pki/intermediate/index.txt.attr
+pki/intermediate/index.txt.old
+pki/intermediate/index.txt.attr.old
+pki/intermediate/serial
+pki/intermediate/serial.old
+pki/intermediate/*.srl
+
 # macOS
 .DS_Store
-
-.DS_Store
+**/.DS_Store
